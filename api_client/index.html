@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Real-Time Speech to Text</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            padding: 20px;
+            text-align: center;
+        }
+        #transcription {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            height: 100px;
+            overflow-y: auto;
+            background: white;
+            width: 50%;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Speech to Text</h1>
+    <button id="startButton">Start Recording</button>
+    <button id="stopButton" disabled>Stop Recording</button>
+    <div id="transcription"></div>
+    <script>
+        let websocket;
+        let context;
+        let processor;
+        let globalStream;
+        const bufferSize = 4096;
+
+        function initWebSocket() {
+            websocket = new WebSocket('wss://llm.xaeon.io:8765');
+            websocket.onopen = () => {
+                console.log("WebSocket connection established");
+                document.getElementById('startButton').disabled = false;
+            };
+            websocket.onmessage = event => {
+                console.log("Message from server:", event.data);
+                const transcriptionDiv = document.getElementById('transcription');
+                transcriptionDiv.textContent += event.data + "\n"; // Displaying text
+            };
+            websocket.onclose = () => {
+                console.log("WebSocket connection closed");
+                document.getElementById('startButton').disabled = true;
+                document.getElementById('stopButton').disabled = true;
+            };
+        }
+
+        function startRecording() {
+            if (context) return;
+            document.getElementById('startButton').disabled = true;
+            document.getElementById('stopButton').disabled = false;
+
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            context = new AudioContext();
+
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                globalStream = stream;
+                const input = context.createMediaStreamSource(stream);
+                processor = context.createScriptProcessor(bufferSize, 1, 1);
+                processor.onaudioprocess = e => {
+                    const left = e.inputBuffer.getChannelData(0);
+                    if (websocket && websocket.readyState === WebSocket.OPEN) {
+                        const audioData = convertFloat32ToInt16(left);
+                        websocket.send(audioData);
+                    }
+                };
+                input.connect(processor);
+                processor.connect(context.destination);
+            }).catch(error => console.error('Error accessing microphone', error));
+        }
+
+        function stopRecording() {
+            if (globalStream) {
+                globalStream.getTracks().forEach(track => track.stop());
+            }
+            if (processor) {
+                processor.disconnect();
+                processor = null;
+            }
+            if (context) {
+                context.close().then(() => context = null);
+            }
+            document.getElementById('startButton').disabled = false;
+            document.getElementById('stopButton').disabled = true;
+        }
+
+        function convertFloat32ToInt16(buffer) {
+            let l = buffer.length;
+            const buf = new Int16Array(l);
+            while (l--) {
+                buf[l] = Math.min(1, buffer[l]) * 0x7FFF;
+            }
+            return buf.buffer;
+        }
+
+        document.getElementById('startButton').addEventListener('click', startRecording);
+        document.getElementById('stopButton').addEventListener('click', stopRecording);
+
+        window.onload = initWebSocket;
+    </script>
+</body>
+</html>

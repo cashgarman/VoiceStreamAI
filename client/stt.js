@@ -187,6 +187,7 @@ function processAudio(e) {
     const audioData = convertFloat32ToInt16(downsampledBuffer);
     
     if (websocket && websocket.readyState === WebSocket.OPEN) {
+		console.log("Sending audio data to server");
         websocket.send(audioData);
     }
 }
